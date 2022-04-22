@@ -14,7 +14,7 @@ main(int argc, char *argv[])
 
    if (fork() == 0) {
       read(p[0], data, sizeof(data));
-      printf("%d: %s\n", getpid(), data);
+      printf("%d: received %s\n", getpid(), data);
       write(p[1], "pong", 5);
       exit(0);
    } else {
@@ -22,7 +22,7 @@ main(int argc, char *argv[])
       wait(0);
       // read here is not blocking.
       read(p[0], data, sizeof(data));
-      printf("%d: %s\n", getpid(), data);
+      printf("%d: received %s\n", getpid(), data);
       exit(0);
    }
 }
