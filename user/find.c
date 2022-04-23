@@ -39,7 +39,6 @@ find(char* path, char* name)
 
    if (st.type == T_FILE || st.type == T_DEVICE) {
       close(fd);
-      printf("File type return %s\n");
       return;
    }
 
