@@ -295,6 +295,9 @@ fork(void)
 
   np->state = RUNNABLE;
 
+  // Inherit syscalls trace requirement.
+  np->tracedSys = p->tracedSys;
+
   release(&np->lock);
 
   return pid;
