@@ -105,6 +105,7 @@ extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -129,8 +130,10 @@ static uint64 (*syscalls[])(void) = {
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace,
+[SYS_sysinfo] sys_sysinfo,
 };
 
+// Syscall names to be printed out in the trace information.
 static char* syscall_names[] = {
    "fork",
    "exit",
@@ -154,6 +157,7 @@ static char* syscall_names[] = {
    "mkdir",
    "close",
    "trace",
+   "sysinfo",
 };
 
 

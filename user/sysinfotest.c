@@ -85,6 +85,8 @@ testcall() {
   }
 
   if (sysinfo((struct sysinfo *) 0xeaeb0b5b00002f5e) !=  0xffffffffffffffff) {
+    struct sysinfo * si = (struct sysinfo *) 0xeaeb0b5b00002f5e;
+    printf("freemem: %d", si->freemem);
     printf("FAIL: sysinfo succeeded with bad argument\n");
     exit(1);
   }
