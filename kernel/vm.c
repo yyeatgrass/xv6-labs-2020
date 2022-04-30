@@ -47,6 +47,92 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+
+// Create a kernel page table for a given process,
+pagetable_t
+proc_kpagetable(uint64 kstva)
+{
+  uint64 kstpa;
+  pagetable_t kpt = (pagetable_t) kalloc();
+  memset(kpt, 0, PGSIZE);
+
+  if (mappages(kpt, UART0, PGSIZE, UART0, PTE_R | PTE_W) < 0) {
+    goto erroruart0;
+  }
+
+  if (mappages(kpt, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) < 0) {
+    goto errvirtio;
+  }
+
+  if (mappages(kpt, CLINT, 0x10000, CLINT, PTE_R | PTE_W) < 0) {
+    goto errclint;
+  }
+
+  if (mappages(kpt, PLIC, 0x400000, PLIC, PTE_R | PTE_W) < 0) {
+    goto errplic;
+  }
+
+  if (mappages(kpt, KERNBASE, (uint64)etext-KERNBASE, KERNBASE, PTE_R | PTE_X) < 0) {
+    goto errkernbase;
+  }
+
+  if (mappages(kpt, (uint64)etext, PHYSTOP-(uint64)etext, (uint64)etext, PTE_R | PTE_W) < 0) {
+    goto erretext;
+  }
+
+  if (mappages(kpt, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) < 0) {
+    goto errtrampoline;
+  }
+
+  kstpa = walkaddr(kernel_pagetable, kstva);
+  if (mappages(kpt, kstva, PGSIZE, kstpa, PTE_R | PTE_W) < 0) {
+    goto errkstack;
+  }
+
+  return kpt;
+
+errkstack:
+  uvmunmap(kpt, TRAMPOLINE, 1, 0);
+errtrampoline:
+  uvmunmap(kpt, (uint64)etext,
+           1 + (PGROUNDDOWN((uint64)etext + PHYSTOP-(uint64)etext - 1) - PGROUNDDOWN((uint64)etext))/PGSIZE, 0);
+erretext:
+  uvmunmap(kpt, KERNBASE,
+           1 + (PGROUNDDOWN(KERNBASE + (uint64)etext-KERNBASE - 1) - PGROUNDDOWN(KERNBASE))/PGSIZE, 0);
+errkernbase:
+  uvmunmap(kpt, PLIC,
+           1 + (PGROUNDDOWN(PLIC + 0x400000 - 1) - PGROUNDDOWN(PLIC))/PGSIZE, 0);
+errplic:
+  uvmunmap(kpt, CLINT,
+           1 + (PGROUNDDOWN(CLINT + 0x10000 - 1) - PGROUNDDOWN(CLINT))/PGSIZE, 0);
+errclint:
+  uvmunmap(kpt, VIRTIO0, 1, 0);
+errvirtio:
+  uvmunmap(kpt, UART0, 1, 0);
+erroruart0:
+  return 0;
+}
+
+// Free a process's per-process kernel page table, but
+// do not free the physical memory it refers to.
+void
+proc_freekpagetable(pagetable_t pagetable, uint64 kstva)
+{
+  uvmunmap(pagetable, UART0, 1, 0);
+  uvmunmap(pagetable, VIRTIO0, 1, 0);
+  uvmunmap(pagetable, CLINT,
+           1 + (PGROUNDDOWN(CLINT + 0x10000 - 1) - PGROUNDDOWN(CLINT))/PGSIZE, 0);
+  uvmunmap(pagetable, PLIC,
+           1 + (PGROUNDDOWN(PLIC + 0x400000 - 1) - PGROUNDDOWN(PLIC))/PGSIZE, 0);
+  uvmunmap(pagetable, KERNBASE,
+           1 + (PGROUNDDOWN(KERNBASE + (uint64)etext-KERNBASE - 1) - PGROUNDDOWN(KERNBASE))/PGSIZE, 0);
+  uvmunmap(pagetable, (uint64)etext,
+           1 + (PGROUNDDOWN((uint64)etext + PHYSTOP-(uint64)etext - 1) - PGROUNDDOWN((uint64)etext))/PGSIZE, 0);
+  uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+  uvmunmap(pagetable, kstva, 1, 0);
+  freewalk(pagetable);
+}
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
@@ -55,6 +141,14 @@ kvminithart()
   w_satp(MAKE_SATP(kernel_pagetable));
   sfence_vma();
 }
+
+void
+kvmsetpg(pagetable_t pg)
+{
+  w_satp(MAKE_SATP(pg));
+  sfence_vma();
+}
+
 
 // Return the address of the PTE in page table pagetable
 // that corresponds to virtual address va.  If alloc!=0,
@@ -119,6 +213,14 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
+}
+
+void
+kvmmap4pt(pagetable_t pt, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+   if (mappages(pt, va, sz, pa, perm) != 0) {
+      panic("kvmmp4pt");
+   }
 }
 
 // translate a kernel virtual address to
@@ -298,6 +400,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
     uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
   freewalk(pagetable);
 }
+
 
 // Given a parent process's page table, copy
 // its memory into a child's page table.

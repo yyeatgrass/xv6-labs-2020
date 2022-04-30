@@ -121,6 +121,14 @@ found:
     return 0;
   }
 
+  // An per-process kernel page table.
+  p->kpagetable = proc_kpagetable(KSTACK((int) (p - proc)));
+  if (p->kpagetable == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -143,6 +151,9 @@ freeproc(struct proc *p)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
   p->sz = 0;
+  if (p->kpagetable) {
+    proc_freekpagetable(p->kpagetable, KSTACK((int) (p - proc)));
+  }
   p->pid = 0;
   p->parent = 0;
   p->name[0] = 0;
@@ -474,10 +485,12 @@ scheduler(void)
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
+        kvmsetpg(p->kpagetable);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+        kvminithart();
 
         found = 1;
       }
