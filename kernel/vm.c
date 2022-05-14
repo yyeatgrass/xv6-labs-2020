@@ -57,18 +57,55 @@ kvminit4kpt(pagetable_t kpt)
   }
 
   if (mappages(kpt, UART0, PGSIZE, UART0, PTE_R | PTE_W) != 0) {
-    return -1;
+    // pte_t pte = kptl2[PX(1, UART0)];
+    // if (pte & PTE_V) {
+    //   printf("aaaafree");
+    //   kfree((void *)(PTE2PA(pte)));
+    // }
+    goto error;
   }
   if (mappages(kpt, VIRTIO0,  PGSIZE, VIRTIO0, PTE_R | PTE_W) != 0) {
     uvmunmap(kpt, UART0, 1, 0);
-    return -1;
+    // pte_t pte = kptl2[PX(1, VIRTIO0)];
+    // if (pte & PTE_V) {
+    //   printf("bbbbfree");
+    //   kfree((void *)(PTE2PA(pte)));
+    // }
+    goto error;
   }
   if (mappages(kpt, PLIC, 0x400000, PLIC, PTE_R | PTE_W) != 0) {
     uvmunmap(kpt, UART0, 1, 0);
     uvmunmap(kpt, VIRTIO0, 1, 0);
-    return -1;
+
+    // pte_t pte1 = kptl2[PX(1, PLIC)];
+    // pte_t pte2 = kptl2[PX(1, PLIC + 512*PGSIZE)];
+
+    // if (pte1 & PTE_V) {
+    //   printf("ccccfree");
+    //   kfree((void *)(PTE2PA(pte1)));
+    // }
+    // if (pte2 & PTE_V) {
+    //   printf("ccccfree");
+    //   kfree((void *)(PTE2PA(pte2)));
+    // }
+    goto error;
   }
   return 0;
+
+error:
+  if (kpt[0] & PTE_V) {
+    pagetable_t kptl2 = (pagetable_t)PTE2PA(kpt[0]);
+    for (int i = 0; i < 512; i++) {
+      pte_t pte = kptl2[i];
+      if (pte & PTE_V) {
+        kfree((void *) PTE2PA(pte));
+        kptl2[i] = 0;
+      }
+    }
+    kfree(kptl2);
+  }
+
+  return -1;
 }
 
 pagetable_t
@@ -96,7 +133,15 @@ kvmfreekpt(pagetable_t kpt, uint64 sz)
   if(sz > 0)
     uvmunmap(kpt, 0, PGROUNDUP(sz)/PGSIZE, 0);
 
-  freewalk((pagetable_t) PTE2PA(kpt[0]));
+  pagetable_t kptl2 = (pagetable_t) PTE2PA(kpt[0]);
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = kptl2[i];
+    if (pte & PTE_V) {
+      kfree((void *) PTE2PA(pte));
+      kptl2[i] = 0;
+    }
+  }
+  kfree((void *)kptl2);
   kfree((void *)kpt);
 }
 
