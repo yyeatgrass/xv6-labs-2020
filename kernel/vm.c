@@ -15,6 +15,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+
 /*
  * create a direct-map page table for the kernel.
  */
@@ -48,17 +49,41 @@ kvminit()
 }
 
 
-void
+int
 kvminit4kpt(pagetable_t kpt)
 {
   for (int i = 1; i < 512; i++) {
     kpt[i] = kernel_pagetable[i];
   }
 
-  kvmmap4kpt(kpt, UART0, UART0, PGSIZE, PTE_R | PTE_W);
-  kvmmap4kpt(kpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
-  kvmmap4kpt(kpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
-  kvmmap4kpt(kpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  if (mappages(kpt, UART0, PGSIZE, UART0, PTE_R | PTE_W) != 0) {
+    return -1;
+  }
+  if (mappages(kpt, VIRTIO0,  PGSIZE, VIRTIO0, PTE_R | PTE_W) != 0) {
+    uvmunmap(kpt, UART0, 1, 0);
+    return -1;
+  }
+  if (mappages(kpt, PLIC, 0x400000, PLIC, PTE_R | PTE_W) != 0) {
+    uvmunmap(kpt, UART0, 1, 0);
+    uvmunmap(kpt, VIRTIO0, 1, 0);
+    return -1;
+  }
+  return 0;
+}
+
+pagetable_t
+kvmcreate()
+{
+  pagetable_t kpt;
+  if ((kpt = uvmcreate()) == 0) {
+    return 0;
+  }
+
+  if (kvminit4kpt(kpt) != 0) {
+    kfree((void *)kpt);
+    return 0;
+  }
+  return kpt;
 }
 
 void
@@ -66,10 +91,12 @@ kvmfreekpt(pagetable_t kpt, uint64 sz)
 {
   uvmunmap(kpt, UART0, 1, 0);
   uvmunmap(kpt, VIRTIO0, 1, 0);
-  uvmunmap(kpt, CLINT, 0x10000/PGSIZE, 0);
   uvmunmap(kpt, PLIC, 0x400000/PGSIZE, 0);
 
-  freewalk((pagetable_t)PTE2PA(kpt[0]));
+  if(sz > 0)
+    uvmunmap(kpt, 0, PGROUNDUP(sz)/PGSIZE, 0);
+
+  freewalk((pagetable_t) PTE2PA(kpt[0]));
   kfree((void *)kpt);
 }
 
@@ -154,14 +181,6 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
     panic("kvmmap");
 }
 
-
-void
-kvmmap4kpt(pagetable_t kpt, uint64 va, uint64 pa, uint64 sz, int perm)
-{
-  if (mappages(kpt, va, sz, pa, perm) != 0) {
-    panic("kvmmap4kpt");
-  }
-}
 
 // translate a kernel virtual address to
 // a physical address. only needed for
@@ -253,7 +272,7 @@ uvmcreate()
 // for the very first process.
 // sz must be less than a page.
 void
-uvminit(pagetable_t pagetable, uchar *src, uint sz)
+uvminit(pagetable_t pagetable, pagetable_t kpt,  uchar *src, uint sz)
 {
   char *mem;
 
@@ -261,36 +280,49 @@ uvminit(pagetable_t pagetable, uchar *src, uint sz)
     panic("inituvm: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
+
   mappages(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
+  mappages(kpt, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X);
+
   memmove(mem, src, sz);
 }
 
 // Allocate PTEs and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
 uint64
-uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+uvmalloc(pagetable_t pagetable, pagetable_t kpt, uint64 oldsz, uint64 newsz)
 {
   char *mem;
   uint64 a;
 
   if(newsz < oldsz)
     return oldsz;
+  if (newsz >= PGROUNDDOWN(PLIC)) {
+    return 0;
+  }
 
   oldsz = PGROUNDUP(oldsz);
   for(a = oldsz; a < newsz; a += PGSIZE){
     mem = kalloc();
     if(mem == 0){
-      uvmdealloc(pagetable, a, oldsz);
-      return 0;
+      goto error;
     }
     memset(mem, 0, PGSIZE);
     if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
       kfree(mem);
-      uvmdealloc(pagetable, a, oldsz);
-      return 0;
+      goto error;
+    }
+
+    if (mappages(kpt, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R) != 0) {
+      uvmunmap(pagetable, a, 1, 1);
+      goto error;
     }
   }
   return newsz;
+
+error:
+  uvmdealloc(pagetable, kpt, a, oldsz);
+  return 0;
 }
 
 // Deallocate user pages to bring the process size from oldsz to
@@ -298,7 +330,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 // need to be less than oldsz.  oldsz can be larger than the actual
 // process size.  Returns the new process size.
 uint64
-uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+uvmdealloc(pagetable_t pagetable, pagetable_t kpt, uint64 oldsz, uint64 newsz)
 {
   if(newsz >= oldsz)
     return oldsz;
@@ -306,6 +338,7 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
     int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
     uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
+    uvmunmap(kpt, PGROUNDUP(newsz), npages, 0);
   }
 
   return newsz;
@@ -348,7 +381,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t new, pagetable_t kpt, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
@@ -369,11 +402,18 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       kfree(mem);
       goto err;
     }
+
+    if (mappages(kpt, i, PGSIZE, (uint64)mem, flags & ~PTE_U) != 0) {
+      uvmunmap(new, i, 1, 1);
+      kfree(mem);
+      goto err;
+    }
   }
   return 0;
 
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(kpt, 0, i / PGSIZE, 0);
   return -1;
 }
 
@@ -421,6 +461,9 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+#ifdef userpgkernel
+  return copyin_new(pagetable, dst, srcva, len);
+#elif
   uint64 n, va0, pa0;
 
   while(len > 0){
@@ -438,6 +481,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     srcva = va0 + PGSIZE;
   }
   return 0;
+#endif
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -447,6 +491,9 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+#ifdef userpgkernel
+  return copyinstr_new(pagetable, dst, srcva, max);
+#elif
   uint64 n, va0, pa0;
   int got_null = 0;
 
@@ -481,6 +528,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+#endif
 }
 
 
@@ -505,8 +553,8 @@ vmprintlevel(pagetable_t pagetable, int level)
 
 
 void
-vmprint(pagetable_t pagetable)
+vmprint(pagetable_t pagetable, int startLevel)
 {
    printf("page table %p\n", pagetable);
-   vmprintlevel(pagetable, 0);
+   vmprintlevel(pagetable, startLevel);
 }

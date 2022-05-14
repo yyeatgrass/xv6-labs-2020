@@ -14,6 +14,8 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+int allocNum = 0;
+
 struct run {
   struct run *next;
 };
@@ -59,6 +61,7 @@ kfree(void *pa)
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
+  // printf("pages allocated: %d\n", --allocNum);
   release(&kmem.lock);
 }
 
@@ -78,5 +81,8 @@ kalloc(void)
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+  // if(r) {
+  //   printf("pages allocated: %d\n", ++allocNum);
+  // }
   return (void*)r;
 }

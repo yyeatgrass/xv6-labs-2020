@@ -2495,6 +2495,7 @@ badarg(char *s)
 void
 execout(char *s)
 {
+  printf("execout starts");
   for(int avail = 0; avail < 15; avail++){
     int pid = fork();
     if(pid < 0){
@@ -2522,7 +2523,7 @@ execout(char *s)
       wait((int*)0);
     }
   }
-
+  printf("execout finish");
   exit(0);
 }
 
@@ -2543,7 +2544,6 @@ countfree()
   }
   
   int pid = fork();
-
   if(pid < 0){
     printf("fork failed in countfree()\n");
     exit(1);
