@@ -45,6 +45,7 @@ test0()
   int i;
   printf("test0 start\n");
   count = 0;
+  printf("periodic %p", periodic);
   sigalarm(2, periodic);
   for(i = 0; i < 1000*500000; i++){
     if((i % 1000000) == 0)
@@ -152,6 +153,7 @@ slow_handler()
   for (int i = 0; i < 1000*500000; i++) {
     asm volatile("nop"); // avoid compiler optimizing away loop
   }
+
   sigalarm(0, 0);
   sigreturn();
 }
