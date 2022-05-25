@@ -69,7 +69,25 @@ usertrap(void)
     // ok
   } else if (r_scause() == 13 || r_scause() == 15) {
     uint64 va = r_stval();
+
+    // access memory unallocated.
+    if (va > p->sz) {
+      p->killed = 1;
+      goto ifkill;
+    }
+
+    // access memory in the stack guard page.
+    if (va < PGROUNDDOWN(p->trapframe->sp) &&
+        va > PGROUNDDOWN(p->trapframe->sp) - PGSIZE) {
+      p->killed = 1;
+      goto ifkill;
+    }
+
     char *mem = kalloc();
+    if (mem == 0) {
+      p->killed = 1;
+      goto ifkill;
+    }
     memset(mem, 0, PGSIZE);
 
     uint64 vadownboundary = PGROUNDDOWN(va);
@@ -80,6 +98,7 @@ usertrap(void)
     p->killed = 1;
   }
 
+ifkill:
   if(p->killed)
     exit(-1);
 
