@@ -694,3 +694,22 @@ procdump(void)
     printf("\n");
   }
 }
+
+
+int
+uvmvalidcheck(uint64 va)
+{
+  struct proc *p = myproc();
+
+  // access memory not allocated.
+  if (va > p->sz || va + PGSIZE > p->sz) {
+    return -1;
+  }
+
+  // access memory in the stack guard page.
+  if (!(va > PGROUNDDOWN(p->trapframe->sp) ||
+        va + PGSIZE < PGROUNDDOWN(p->trapframe->sp) - PGSIZE)) {
+    return -1;
+  }
+  return 0;
+}

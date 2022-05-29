@@ -78,6 +78,9 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
+    if (va == 0x0000000080000000) {
+      printf("pte: %p", pte);
+    }
     if(*pte & PTE_V) {
       pagetable = (pagetable_t)PTE2PA(*pte);
     } else {
@@ -86,6 +89,9 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
       memset(pagetable, 0, PGSIZE);
       *pte = PA2PTE(pagetable) | PTE_V;
     }
+  }
+  if (va == 0x0000000080000000) {
+    printf("return %p", &pagetable[PX(0, va)]);
   }
   return &pagetable[PX(0, va)];
 }
@@ -352,6 +358,21 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+int
+lazyallocuvm(pagetable_t pagetable, uint64 va)
+{
+  if (uvmvalidcheck(va) < 0) {
+    return -1;
+  }
+
+  char *mem = kalloc();
+  if (mem == 0) {
+    return -1;
+  }
+  mappages(pagetable, va, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U);
+  return 0;
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
@@ -363,8 +384,13 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if (pa0 == 0) {
+      if (lazyallocuvm(pagetable, va0) < 0) {
+        return -1;
+      }
+      pa0 = walkaddr(pagetable, va0);
+    }
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -377,6 +403,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   return 0;
 }
 
+
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
@@ -388,8 +415,13 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if (pa0 == 0) {
+      if (lazyallocuvm(pagetable, va0) < 0) {
+        return -1;
+      }
+      pa0 = walkaddr(pagetable, va0);
+    }
+
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;
@@ -415,8 +447,13 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   while(got_null == 0 && max > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if (pa0 == 0) {
+      if (lazyallocuvm(pagetable, va0) < 0) {
+        return -1;
+      }
+      pa0 = walkaddr(pagetable, va0);
+    }
+
     n = PGSIZE - (srcva - va0);
     if(n > max)
       n = max;
