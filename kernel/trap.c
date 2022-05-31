@@ -67,12 +67,31 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 13 || r_scause() == 15) {
+    // printf("user page fault\n");
+    uint64 va = r_stval();
+    uint64 pa = walkaddr(p->pagetable, va);
+    // printf("usertrap va %p, pa %p\n", va, pa);
+    if (pa == 0) {
+      vmprint(p->pagetable, 0);
+      panic("The faulting page not allocated.");
+    }
+    char *mem = kalloc();
+    if (mem == 0) {
+      p->killed = 1;
+      goto kill;
+    }
+    memmove(mem, (void *)pa, PGSIZE);
+    uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 1);
+    mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE,(uint64)mem, PTE_U|PTE_X|PTE_R|PTE_W);
+
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
 
+kill:
   if(p->killed)
     exit(-1);
 
@@ -137,7 +156,8 @@ kerneltrap()
   uint64 sepc = r_sepc();
   uint64 sstatus = r_sstatus();
   uint64 scause = r_scause();
-  
+  // struct proc *p = myproc();
+
   if((sstatus & SSTATUS_SPP) == 0)
     panic("kerneltrap: not from supervisor mode");
   if(intr_get() != 0)
