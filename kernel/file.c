@@ -109,7 +109,6 @@ fileread(struct file *f, uint64 addr, int n)
   int r = 0;
 
   if(f->readable == 0) {
-    printf("zzzz");
     return -1;
   }
 
@@ -118,7 +117,6 @@ fileread(struct file *f, uint64 addr, int n)
     r = piperead(f->pipe, addr, n);
   } else if(f->type == FD_DEVICE){
     if(f->major < 0 || f->major >= NDEV || !devsw[f->major].read) {
-      printf("bbbb");
       return -1;
     }
     r = devsw[f->major].read(1, addr, n);
@@ -131,9 +129,6 @@ fileread(struct file *f, uint64 addr, int n)
     panic("fileread");
   }
 
-  if (r < 0) {
-    printf("yyyyy");
-  }
   return r;
 }
 

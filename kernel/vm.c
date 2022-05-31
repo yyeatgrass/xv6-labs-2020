@@ -102,18 +102,15 @@ walkaddr(pagetable_t pagetable, uint64 va)
 
   pte = walk(pagetable, va, 0);
   if(pte == 0) {
-    printf("aa");
     return 0;
   }
 
   if((*pte & PTE_V) == 0) {
-    printf("bbb");
     return 0;
   }
 
   if((*pte & PTE_U) == 0) {
     printf("flag: %p", PTE_FLAGS(*pte));
-    printf("cccc");
     return 0;
   }
 
@@ -197,9 +194,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
+    uint64 pa = PTE2PA(*pte);
     if(do_free){
-      uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
+    } else {
+      decref4pg((void*)pa);
     }
     *pte = 0;
   }

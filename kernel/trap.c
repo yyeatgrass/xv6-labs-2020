@@ -70,11 +70,17 @@ usertrap(void)
   } else if (r_scause() == 13 || r_scause() == 15) {
     // printf("user page fault\n");
     uint64 va = r_stval();
+    if (va >= p->sz ||
+        (va >= PGROUNDDOWN(p->trapframe->sp -PGSIZE) &&
+         va < PGROUNDUP(p->trapframe->sp - PGSIZE))) {
+      p->killed = 1;
+      goto kill;
+    }
+
     uint64 pa = walkaddr(p->pagetable, va);
-    // printf("usertrap va %p, pa %p\n", va, pa);
     if (pa == 0) {
       vmprint(p->pagetable, 0);
-      panic("The faulting page not allocated.");
+      panic("The faulting page not allocated");
     }
     char *mem = kalloc();
     if (mem == 0) {
