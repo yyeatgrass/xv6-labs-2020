@@ -13,6 +13,7 @@ struct entry {
   int value;
   struct entry *next;
 };
+pthread_mutex_t bukectLocks[NBUCKET];
 struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
@@ -51,15 +52,17 @@ void put(int key, int value)
     e->value = value;
   } else {
     // the new is new.
+    pthread_mutex_lock(&bukectLocks[i]);
     insert(key, value, &table[i], table[i]);
+    pthread_mutex_unlock(&bukectLocks[i]);
   }
+
 }
 
 static struct entry*
 get(int key)
 {
   int i = key % NBUCKET;
-
 
   struct entry *e = 0;
   for (e = table[i]; e != 0; e = e->next) {
@@ -109,6 +112,9 @@ main(int argc, char *argv[])
   }
   nthread = atoi(argv[1]);
   tha = malloc(sizeof(pthread_t) * nthread);
+  for (int i = 0; i < NBUCKET; i++) {
+    pthread_mutex_init(&bukectLocks[i], NULL);
+  }
   srandom(0);
   assert(NKEYS % nthread == 0);
   for (int i = 0; i < NKEYS; i++) {
