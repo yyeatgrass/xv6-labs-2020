@@ -39,6 +39,7 @@ main()
     printf("bigfile: cannot re-open big.file for reading\n");
     exit(-1);
   }
+
   for(i = 0; i < blocks; i++){
     int cc = read(fd, buf, sizeof(buf));
     if(cc <= 0){
