@@ -290,7 +290,7 @@ sys_open(void)
   int fd, omode;
   struct file *f;
   struct inode *ip;
-  int n;
+  int n, symiters;
 
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
@@ -308,11 +308,32 @@ sys_open(void)
       end_op();
       return -1;
     }
+
     ilock(ip);
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
       return -1;
+    }
+  }
+
+  symiters = 0;
+  if ((ip->type == T_SYMLINK) && ((omode & O_NOFOLLOW) == 0)) {
+  	while (readi(ip, 0, (uint64)path, 0, MAXPATH) == MAXPATH) {
+    	iunlockput(ip);
+    	if ((ip = namei(path)) == 0) {
+        end_op();
+        return -1;
+      }
+      ilock(ip);
+      if (ip->type != T_SYMLINK) {
+        break;
+      }
+      if (symiters++ > 10) {
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
     }
   }
 
@@ -482,5 +503,29 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  struct inode *ip;
+  char target[MAXPATH], path[MAXPATH];
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0){
+    return -1;
+  }
+
+  begin_op();
+  // look up or create the inode for the symbolic link file.
+  if ((ip = create(path, T_SYMLINK, 0, 0)) == 0) {
+    end_op();
+    return -1;
+  }
+  // write the target to the symbolic link file.
+  if(writei(ip, 0, (uint64)target, 0, MAXPATH) != MAXPATH) {
+    panic("unlink: writei");
+  }
+  iunlockput(ip);
+  end_op();
   return 0;
 }
