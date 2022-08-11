@@ -5,6 +5,11 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "fcntl.h"
 
 /*
  * the kernel's page table.
@@ -14,6 +19,20 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+struct vma {
+  uint64 addr;
+  uint64 len;
+  struct file *file;
+  int prot;
+  int flags;
+  int ref;
+};
+
+struct {
+  struct spinlock lock;
+  struct vma vmapool[NVMAPOOL];
+} vmatable;
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -428,4 +447,148 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+struct vma *
+vmaalloc(struct proc *p)
+{
+  struct vma *vma;
+  int i;
+  acquire(&vmatable.lock);
+  for (vma = vmatable.vmapool; vma < vmatable.vmapool + NVMAPOOL; vma++) {
+    if (vma->ref == 0) {
+      for (i = 0; i < NOVMA; i++) {
+        if (p->vmas[i] == 0) {
+          p->vmas[i] = vma;
+          vma->ref = 1;
+          release(&vmatable.lock);
+          return vma;
+        }
+      }
+      release(&vmatable.lock);
+      return 0;
+    }
+  }
+  release(&vmatable.lock);
+  return 0;
+}
+
+int
+validvma(struct vma** vmaarr, uint64 addr, int length)
+{
+  if (addr < MAPBOT || addr >= MAPTOP) {
+    return -1;
+  }
+
+  struct vma **p;
+  for (p = vmaarr; p < vmaarr + NOVMA; p++) {
+    if (*p == 0) {
+      continue;
+    }
+    // Invalid if overlap with one virtual memory area
+    if (!(addr + length <= (*p)->addr || addr >= (*p)->addr + (*p)->len)) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+struct vma*
+findvma(struct vma** vmas, uint64 va)
+{
+  struct vma** vma;
+  for (vma = vmas; vma < vmas + NOVMA; vma++) {
+    if (*vma == 0) {
+      continue;
+    }
+    if (va >= (*vma)->addr && va < (*vma)->addr + (*vma)->len) {
+      return *vma;
+    }
+  }
+  return 0;
+}
+
+int
+lazyalloc1page(pagetable_t pg, uint64 va, struct vma* vma)
+{
+  char *mem = kalloc();
+  if (mem == 0) {
+    return -1;
+  }
+  memset((char*)mem, 0, PGSIZE);
+  if (mappages(pg, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) < 0) {
+    return -1;
+  }
+
+  int r, rlen;
+  uint64 rdown;
+  if (PGROUNDDOWN(va) >= vma->addr) {
+    rdown = PGROUNDDOWN(va);
+  } else {
+    rdown = vma->addr;
+  }
+  if (PGROUNDUP(va) > vma->addr + vma->len) {
+    rlen = vma->addr + vma->len - rdown;
+  } else {
+    rlen = PGSIZE;
+  }
+
+  ilock(vma->file->ip);
+  r = readi(vma->file->ip, 1, rdown, va - vma->addr, rlen);
+  iunlock(vma->file->ip);
+  if (r <= 0) {
+    printf("rr %d", r);
+    return -1;
+  }
+  return 0;
+}
+
+int
+setvma(struct vma* vma, uint64 addr, int len, struct file* file, int prot, int flags)
+{
+  vma->addr = addr;
+  vma->len = len;
+  vma->file = file;
+  vma->prot = prot;
+  vma->flags = flags;
+  return 0;
+}
+
+int
+munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
+{
+  uint64 npages;
+  int i;
+  pte_t * pte;
+
+  if (addr + len <= vma->addr + vma->len) {
+    npages = (PGROUNDUP(addr + len) - PGROUNDDOWN(addr))/PGSIZE;
+  } else {
+    npages = (PGROUNDUP(vma->addr + vma->len) - PGROUNDDOWN(addr))/PGSIZE;
+  }
+
+  // Decrease the reference count of the file if all the mmaped area is ummapped.
+  if (npages == (PGROUNDUP(vma->addr + vma->len) - PGROUNDDOWN(vma->addr))/PGSIZE) {
+    vma->file->ref -= 1;
+  }
+
+  if ((vma->flags & MAP_SHARED) != 0) {
+    filewrite(vma->file, vma->addr, vma->len);
+  }
+
+  for (i = 0; i < npages; i++) {
+    if((pte = walk(pagetable, addr+i*PGSIZE, 0)) == 0)
+      panic("munmap: walk");
+    if((*pte & PTE_V) == 0) {
+      continue;
+    }
+    uvmunmap(pagetable, addr+i*PGSIZE, 1, 0);
+  }
+
+  return 0;
+}
+
+int
+munmapvma(pagetable_t pagetable, struct vma* vma) {
+  return munmap(pagetable, vma, vma->addr, vma->len);
 }

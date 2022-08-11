@@ -171,6 +171,13 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+struct vma*     findvma(struct vma** vmas, uint64 va);
+int             lazyalloc1page(pagetable_t pg, uint64 va, struct vma* vma);
+struct vma *    vmaalloc(struct proc *p);
+int             validvma(struct vma** vmaarr, uint64 addr, int length);
+int             setvma(struct vma* vma, uint64 addr, int len, struct file* file, int prot, int flags);
+int             munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len);
+int             munmapvma(pagetable_t pagetable, struct vma* vma);
 
 // plic.c
 void            plicinit(void);

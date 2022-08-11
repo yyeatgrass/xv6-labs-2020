@@ -16,6 +16,7 @@
 #include "file.h"
 #include "fcntl.h"
 
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -480,6 +481,70 @@ sys_pipe(void)
     p->ofile[fd1] = 0;
     fileclose(rf);
     fileclose(wf);
+    return -1;
+  }
+  return 0;
+}
+
+uint64
+sys_mmap(void)
+{
+  // Get all the arguments
+  uint64 addr;
+  int length, prot, flags, fd, offset;
+  struct file *f;
+  struct proc *p = myproc();
+
+  if (argaddr(0, &addr) < 0 || argint(1, &length) < 0 ||
+      argint(2, &prot) < 0 || argint(3, &flags) < 0 ||
+      argfd(4, &fd, &f) < 0 || argint(5, &offset) < 0) {
+    return -1;
+  }
+
+  if ((!f->writable) && (prot & PROT_WRITE) && (!(flags & MAP_PRIVATE))) {
+    return -1;
+  }
+
+  struct vma* vma = vmaalloc(p);
+  if (vma == 0) {
+    return -1;
+  }
+
+  if (addr == 0) {
+    addr = p->mapsz;
+    p->mapsz += length;
+  } else if (validvma(p->vmas, addr, length) == 0) {
+    // check if the memory area is legal
+    if (addr >= p->mapsz) {
+      p->mapsz = addr + length;
+    }
+  } else {
+    return -1;
+  }
+
+  setvma(vma, addr, length, f, prot, flags);
+  filedup(f);
+  return addr;
+}
+
+uint64
+sys_munmap(void)
+{
+  // get addr and length
+  uint64 addr;
+  int length;
+  struct vma* vma;
+
+  if (argaddr(0, &addr) < 0 || argint(1, &length) < 0) {
+    return -1;
+  }
+
+  // find the vma struct of addr.
+  if ((vma = findvma(myproc()->vmas, addr)) == 0) {
+    return 0;
+  }
+
+  if (munmap(myproc()->pagetable, vma, addr, length) < 0) {
     return -1;
   }
   return 0;

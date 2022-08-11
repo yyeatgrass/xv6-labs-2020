@@ -227,6 +227,7 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  p->mapsz = MAPBOT;
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -340,9 +341,18 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
+  int i;
 
   if(p == initproc)
     panic("init exiting");
+
+  // Unmap all the mmapped virtual memory area.
+  for (i = 0; i < NOVMA; i++) {
+    if (p->vmas[i] == 0) {
+      continue;
+    }
+    munmapvma(p->pagetable, p->vmas[i]);
+  }
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
