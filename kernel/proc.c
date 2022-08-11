@@ -356,7 +356,6 @@ exit(int status)
 
   // Unmap all the mmapped virtual memory area.
   for (i = 0; i < NOVMA; i++) {
-    // printf("before recycling vma...");
     recyclevma(p->pagetable, p->vmas[i]);
   }
 

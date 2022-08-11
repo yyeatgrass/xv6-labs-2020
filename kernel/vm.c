@@ -582,7 +582,7 @@ munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
 
   // Decrease the reference count of the file if all the mmaped area is ummapped.
   if (npages == (PGROUNDUP(vma->addr + vma->len) - PGROUNDDOWN(vma->addr))/PGSIZE) {
-    vma->file->ref -= 1;
+    fileclose(vma->file);
     vma->valid = 0;
   }
 
@@ -604,13 +604,11 @@ munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
 
 int
 recyclevma(pagetable_t pagetable, struct vma* vma) {
-  // printf("vma valid: %d \n", vma->valid);
   if (vma->valid) {
     if (munmap(pagetable, vma, vma->addr, vma->len) < 0) {
       return -1;
     }
   }
   vma->ref = 0;
-  // printf("recycle vmas.");
   return 0;
 }
