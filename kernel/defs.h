@@ -177,7 +177,7 @@ struct vma *    vmaalloc(struct proc *p);
 int             validvma(struct vma** vmaarr, uint64 addr, int length);
 int             setvma(struct vma* vma, uint64 addr, int len, struct file* file, int prot, int flags);
 int             munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len);
-int             munmapvma(pagetable_t pagetable, struct vma* vma);
+int             recyclevma(pagetable_t pagetable, struct vma* vma);
 int             vmainit(struct proc *p);
 
 // plic.c

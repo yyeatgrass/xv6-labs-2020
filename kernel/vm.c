@@ -457,6 +457,7 @@ vmaalloc(struct proc *p)
   for (i = 0; i < NOVMA; i++) {
     if (p->vmas[i] && !p->vmas[i]->valid) {
       p->vmas[i]->valid = 1;
+      // printf("set valid: %d \n", p->vmas[i]->valid);
       return p->vmas[i];
     }
   }
@@ -472,7 +473,8 @@ vmainit(struct proc *p)
   for (vma = vmatable.vmapool; vma < vmatable.vmapool + NVMAPOOL; vma++) {
     if (vma->ref == 0) {
       p->vmas[i] = vma;
-      vma->ref++;
+      vma->ref = 1;
+      // printf("vma allocated.");
       if (++i == NOVMA) {
         release(&vmatable.lock);
         return 0;
@@ -483,30 +485,6 @@ vmainit(struct proc *p)
   return -1;
 }
 
-
-// struct vma *
-// vmaalloc(struct proc *p)
-// {
-//   struct vma *vma;
-//   int i;
-//   acquire(&vmatable.lock);
-//   for (vma = vmatable.vmapool; vma < vmatable.vmapool + NVMAPOOL; vma++) {
-//     if (vma->ref == 0) {
-//       for (i = 0; i < NOVMA; i++) {
-//         if (p->vmas[i] == 0) {
-//           p->vmas[i] = vma;
-//           vma->ref = 1;
-//           release(&vmatable.lock);
-//           return vma;
-//         }
-//       }
-//       release(&vmatable.lock);
-//       return 0;
-//     }
-//   }
-//   release(&vmatable.lock);
-//   return 0;
-// }
 
 int
 validvma(struct vma** vmaarr, uint64 addr, int length)
@@ -625,9 +603,14 @@ munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
 }
 
 int
-munmapvma(pagetable_t pagetable, struct vma* vma) {
+recyclevma(pagetable_t pagetable, struct vma* vma) {
+  // printf("vma valid: %d \n", vma->valid);
   if (vma->valid) {
-    return munmap(pagetable, vma, vma->addr, vma->len);
+    if (munmap(pagetable, vma, vma->addr, vma->len) < 0) {
+      return -1;
+    }
   }
+  vma->ref = 0;
+  // printf("recycle vmas.");
   return 0;
 }

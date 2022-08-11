@@ -130,6 +130,7 @@ found:
 
   // Allocate virtual memory area array
   if (vmainit(p) < 0) {
+    printf("not enough vma");
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -355,7 +356,8 @@ exit(int status)
 
   // Unmap all the mmapped virtual memory area.
   for (i = 0; i < NOVMA; i++) {
-    munmapvma(p->pagetable, p->vmas[i]);
+    // printf("before recycling vma...");
+    recyclevma(p->pagetable, p->vmas[i]);
   }
 
   // Close all open files.
