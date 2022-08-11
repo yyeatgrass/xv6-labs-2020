@@ -26,6 +26,7 @@ struct vma {
   struct file *file;
   int prot;
   int flags;
+  int valid;
   int ref;
 };
 
@@ -452,26 +453,60 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 struct vma *
 vmaalloc(struct proc *p)
 {
-  struct vma *vma;
   int i;
+  for (i = 0; i < NOVMA; i++) {
+    if (p->vmas[i] && !p->vmas[i]->valid) {
+      p->vmas[i]->valid = 1;
+      return p->vmas[i];
+    }
+  }
+  return 0;
+}
+
+int
+vmainit(struct proc *p)
+{
+  struct vma *vma;
+  int i = 0;
   acquire(&vmatable.lock);
   for (vma = vmatable.vmapool; vma < vmatable.vmapool + NVMAPOOL; vma++) {
     if (vma->ref == 0) {
-      for (i = 0; i < NOVMA; i++) {
-        if (p->vmas[i] == 0) {
-          p->vmas[i] = vma;
-          vma->ref = 1;
-          release(&vmatable.lock);
-          return vma;
-        }
+      p->vmas[i] = vma;
+      vma->ref++;
+      if (++i == NOVMA) {
+        release(&vmatable.lock);
+        return 0;
       }
-      release(&vmatable.lock);
-      return 0;
     }
   }
   release(&vmatable.lock);
-  return 0;
+  return -1;
 }
+
+
+// struct vma *
+// vmaalloc(struct proc *p)
+// {
+//   struct vma *vma;
+//   int i;
+//   acquire(&vmatable.lock);
+//   for (vma = vmatable.vmapool; vma < vmatable.vmapool + NVMAPOOL; vma++) {
+//     if (vma->ref == 0) {
+//       for (i = 0; i < NOVMA; i++) {
+//         if (p->vmas[i] == 0) {
+//           p->vmas[i] = vma;
+//           vma->ref = 1;
+//           release(&vmatable.lock);
+//           return vma;
+//         }
+//       }
+//       release(&vmatable.lock);
+//       return 0;
+//     }
+//   }
+//   release(&vmatable.lock);
+//   return 0;
+// }
 
 int
 validvma(struct vma** vmaarr, uint64 addr, int length)
@@ -570,6 +605,7 @@ munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
   // Decrease the reference count of the file if all the mmaped area is ummapped.
   if (npages == (PGROUNDUP(vma->addr + vma->len) - PGROUNDDOWN(vma->addr))/PGSIZE) {
     vma->file->ref -= 1;
+    vma->valid = 0;
   }
 
   if ((vma->flags & MAP_SHARED) != 0) {
@@ -590,5 +626,8 @@ munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
 
 int
 munmapvma(pagetable_t pagetable, struct vma* vma) {
-  return munmap(pagetable, vma, vma->addr, vma->len);
+  if (vma->valid) {
+    return munmap(pagetable, vma, vma->addr, vma->len);
+  }
+  return 0;
 }

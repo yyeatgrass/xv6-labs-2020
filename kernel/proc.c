@@ -128,6 +128,13 @@ found:
     return 0;
   }
 
+  // Allocate virtual memory area array
+  if (vmainit(p) < 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -348,9 +355,6 @@ exit(int status)
 
   // Unmap all the mmapped virtual memory area.
   for (i = 0; i < NOVMA; i++) {
-    if (p->vmas[i] == 0) {
-      continue;
-    }
     munmapvma(p->pagetable, p->vmas[i]);
   }
 
