@@ -518,6 +518,7 @@ findvma(struct vma** vmas, uint64 va)
       return *vma;
     }
   }
+  printf("Did not find the vma.");
   return 0;
 }
 
@@ -580,14 +581,14 @@ munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
     npages = (PGROUNDUP(vma->addr + vma->len) - PGROUNDDOWN(addr))/PGSIZE;
   }
 
+  if ((vma->flags & MAP_SHARED) != 0) {
+    filewrite(vma->file, vma->addr, vma->len);
+  }
+
   // Decrease the reference count of the file if all the mmaped area is ummapped.
   if (npages == (PGROUNDUP(vma->addr + vma->len) - PGROUNDDOWN(vma->addr))/PGSIZE) {
     fileclose(vma->file);
     vma->valid = 0;
-  }
-
-  if ((vma->flags & MAP_SHARED) != 0) {
-    filewrite(vma->file, vma->addr, vma->len);
   }
 
   for (i = 0; i < npages; i++) {
@@ -603,12 +604,31 @@ munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len)
 }
 
 int
-recyclevma(pagetable_t pagetable, struct vma* vma) {
+recyclevma(pagetable_t pagetable, struct vma* vma)
+{
   if (vma->valid) {
     if (munmap(pagetable, vma, vma->addr, vma->len) < 0) {
       return -1;
     }
   }
   vma->ref = 0;
+  return 0;
+}
+
+int
+copyvmas(struct vma **vmas, struct vma **nvmas)
+{
+  int i;
+  for (i = 0; i < NOVMA; i++) {
+    nvmas[i]->valid = vmas[i]->valid;
+    nvmas[i]->addr = vmas[i]->addr;
+    nvmas[i]->len = vmas[i]->len;
+    nvmas[i]->file = vmas[i]->file;
+    if (nvmas[i]->valid) {
+      filedup(vmas[i]->file);
+    }
+    nvmas[i]->prot = vmas[i]->prot;
+    nvmas[i]->flags = vmas[i]->flags;
+  }
   return 0;
 }

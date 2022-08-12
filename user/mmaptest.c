@@ -38,11 +38,13 @@ _v1(char *p)
 {
   int i;
   for (i = 0; i < PGSIZE*2; i++) {
+    // printf("iter %d", i);
     if (i < PGSIZE + (PGSIZE/2)) {
       if (p[i] != 'A') {
         printf("mismatch at %d, wanted 'A', got 0x%x\n", i, p[i]);
         err("v1 mismatch (1)");
       }
+      // printf("match at %d", i);
     } else {
       if (p[i] != 0) {
         printf("mismatch at %d, wanted zero, got 0x%x\n", i, p[i]);

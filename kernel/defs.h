@@ -179,6 +179,7 @@ int             setvma(struct vma* vma, uint64 addr, int len, struct file* file,
 int             munmap(pagetable_t pagetable, struct vma* vma, uint64 addr, int len);
 int             recyclevma(pagetable_t pagetable, struct vma* vma);
 int             vmainit(struct proc *p);
+int             copyvmas(struct vma **vmas, struct vma **nvmas);
 
 // plic.c
 void            plicinit(void);
